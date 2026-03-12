@@ -22,7 +22,7 @@ class OpenAIOutlinerStage(Stage):
                 {"role": "system", "content": SYSTEM},
                 {"role": "user", "content": user_message(ctx)},
             ],
-            max_tokens=MAX_TOKENS,
+            max_completion_tokens=MAX_TOKENS,
         )
         ctx.data["outline"] = response.choices[0].message.content
         ctx.data["outline_input_tokens"] = response.usage.prompt_tokens

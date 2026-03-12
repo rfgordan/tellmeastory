@@ -31,7 +31,7 @@ class OpenAIWriterStage(Stage):
                 {"role": "system", "content": SYSTEM},
                 {"role": "user", "content": ctx.data["final_prompt"]},
             ],
-            max_tokens=MAX_TOKENS,
+            max_completion_tokens=MAX_TOKENS,
             stream=True,
             stream_options={"include_usage": True},
         )

@@ -9,14 +9,15 @@ from dotenv import load_dotenv
 
 from .pipeline import Pipeline
 from .prompts.writer import SYSTEM
-from .stages.writer import DEFAULT_MODEL, MODELS, WriterStage
+from .stages.writer import DEFAULT_MODEL, DEFAULT_THINKING_BUDGET, MODELS, WriterStage
 
 load_dotenv()
 
 USAGE = (
-    "Usage: tellmeastory [--model sonnet4_6|opus4_6] [--save] \"<story concept>\"\n"
-    "       echo \"<story concept>\" | tellmeastory [--model sonnet4_6|opus4_6] [--save]\n"
-    f"Models: {', '.join(MODELS)} (default: {DEFAULT_MODEL})"
+    "Usage: tellmeastory [--model sonnet4_6|opus4_6] [--thinking [N]] [--save] \"<story concept>\"\n"
+    "       echo \"<story concept>\" | tellmeastory [options]\n"
+    f"Models: {', '.join(MODELS)} (default: {DEFAULT_MODEL})\n"
+    f"--thinking enables extended thinking with an optional token budget (default: {DEFAULT_THINKING_BUDGET})"
 )
 
 
@@ -47,6 +48,7 @@ def _save_story(output_root: Path, prompt: str, model_alias: str, ctx_data: dict
         f"model: {ctx_data.get('model', '')}",
         f"model_alias: {model_alias}",
         f"word_count: {word_count}",
+        f"thinking_budget: {ctx_data.get('thinking_budget') or 'null'}",
         f"input_tokens: {ctx_data.get('input_tokens', 'N/A')}",
         f"output_tokens: {ctx_data.get('output_tokens', 'N/A')}",
         f"user_prompt: {block(prompt)}",
@@ -67,6 +69,7 @@ def main() -> None:
     args = sys.argv[1:]
     model = DEFAULT_MODEL
     save = False
+    thinking_budget: int | None = None
 
     i = 0
     prompt_parts: list[str] = []
@@ -80,6 +83,14 @@ def main() -> None:
                 print(f"Error: unknown model '{model}'. Choose from: {', '.join(MODELS)}", file=sys.stderr)
                 sys.exit(1)
             i += 2
+        elif args[i] in ("--thinking", "-t"):
+            # Optional budget: --thinking or --thinking 8000
+            if i + 1 < len(args) and args[i + 1].isdigit():
+                thinking_budget = int(args[i + 1])
+                i += 2
+            else:
+                thinking_budget = DEFAULT_THINKING_BUDGET
+                i += 1
         elif args[i] in ("--save", "-s"):
             save = True
             i += 1
@@ -99,9 +110,12 @@ def main() -> None:
         sys.exit(1)
 
     client = Anthropic(api_key=api_key)
-    pipeline = Pipeline([WriterStage(client, model)], client)
+    pipeline = Pipeline([WriterStage(client, model, thinking_budget)], client)
 
-    print("Generating your story...\n", file=sys.stderr)
+    status = "Generating your story"
+    if thinking_budget is not None:
+        status += f" (thinking budget: {thinking_budget} tokens)"
+    print(f"{status}...\n", file=sys.stderr)
     for chunk in pipeline.stream(prompt):
         print(chunk, end="", flush=True)
     print()  # final newline

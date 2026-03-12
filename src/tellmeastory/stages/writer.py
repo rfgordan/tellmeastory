@@ -10,13 +10,15 @@ MODELS = {
     "opus4_6": "claude-opus-4-6",
 }
 DEFAULT_MODEL = "sonnet4_6"
-MAX_TOKENS = 4096
+DEFAULT_THINKING_BUDGET = 5000
+MAX_OUTPUT_TOKENS = 4096
 
 
 class WriterStage(Stage):
-    def __init__(self, client: Anthropic, model: str = DEFAULT_MODEL) -> None:
+    def __init__(self, client: Anthropic, model: str = DEFAULT_MODEL, thinking_budget: int | None = None) -> None:
         self.client = client
         self.model = MODELS[model]
+        self.thinking_budget = thinking_budget
 
     def run(self, ctx: Context) -> Context:
         full_text = "".join(self.stream(ctx))
@@ -27,11 +29,20 @@ class WriterStage(Stage):
         full_text: list[str] = []
         ctx.data["final_prompt"] = user_message(ctx)
         ctx.data["model"] = self.model
+        ctx.data["thinking_budget"] = self.thinking_budget
+
+        extra: dict = {}
+        max_tokens = MAX_OUTPUT_TOKENS
+        if self.thinking_budget is not None:
+            extra["thinking"] = {"type": "enabled", "budget_tokens": self.thinking_budget}
+            max_tokens += self.thinking_budget
+
         with self.client.messages.stream(
             model=self.model,
-            max_tokens=MAX_TOKENS,
+            max_tokens=max_tokens,
             system=SYSTEM,
             messages=[{"role": "user", "content": ctx.data["final_prompt"]}],
+            **extra,
         ) as stream:
             for text in stream.text_stream:
                 full_text.append(text)

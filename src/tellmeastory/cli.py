@@ -26,18 +26,10 @@ def _slugify(text: str, max_words: int = 6) -> str:
     return slug.strip("-") or "story"
 
 
-def _unique_dir(base: Path) -> Path:
-    if not base.exists():
-        return base
-    i = 2
-    while (candidate := base.parent / f"{base.name}-{i}").exists():
-        i += 1
-    return candidate
-
-
 def _save_story(output_root: Path, prompt: str, model_alias: str, ctx_data: dict) -> Path:
     slug = _slugify(prompt)
-    story_dir = _unique_dir(output_root / slug)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    story_dir = output_root / f"{slug}-{ts}"
     story_dir.mkdir(parents=True, exist_ok=True)
 
     draft = ctx_data.get("draft", "")

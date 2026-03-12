@@ -9,15 +9,17 @@ from dotenv import load_dotenv
 
 from .pipeline import Pipeline
 from .prompts.writer import SYSTEM
+from .stages.outliner import OutlinerStage
 from .stages.writer import DEFAULT_MODEL, DEFAULT_THINKING_BUDGET, MODELS, WriterStage
 
 load_dotenv()
 
 USAGE = (
-    "Usage: tellmeastory [--model sonnet4_6|opus4_6] [--thinking [N]] [--save] \"<story concept>\"\n"
+    "Usage: tellmeastory [--model sonnet4_6|opus4_6] [--outline] [--thinking [N]] [--save] \"<story concept>\"\n"
     "       echo \"<story concept>\" | tellmeastory [options]\n"
     f"Models: {', '.join(MODELS)} (default: {DEFAULT_MODEL})\n"
-    f"--thinking enables extended thinking with an optional token budget (default: {DEFAULT_THINKING_BUDGET})"
+    f"--outline   generate a structural outline before writing\n"
+    f"--thinking  enable extended thinking with optional token budget (default: {DEFAULT_THINKING_BUDGET})"
 )
 
 
@@ -38,6 +40,10 @@ def _save_story(output_root: Path, prompt: str, model_alias: str, ctx_data: dict
 
     (story_dir / "story.txt").write_text(draft, encoding="utf-8")
 
+    outline_text = ctx_data.get("outline")
+    if outline_text:
+        (story_dir / "outline.txt").write_text(outline_text, encoding="utf-8")
+
     final_prompt = ctx_data.get("final_prompt", "")
     # Indent multi-line values for YAML block scalar
     def block(s: str) -> str:
@@ -49,6 +55,9 @@ def _save_story(output_root: Path, prompt: str, model_alias: str, ctx_data: dict
         f"model_alias: {model_alias}",
         f"word_count: {word_count}",
         f"thinking_budget: {ctx_data.get('thinking_budget') or 'null'}",
+        f"outline_generated: {'true' if ctx_data.get('outline') else 'false'}",
+        f"outline_input_tokens: {ctx_data.get('outline_input_tokens', 'N/A')}",
+        f"outline_output_tokens: {ctx_data.get('outline_output_tokens', 'N/A')}",
         f"input_tokens: {ctx_data.get('input_tokens', 'N/A')}",
         f"output_tokens: {ctx_data.get('output_tokens', 'N/A')}",
         f"user_prompt: {block(prompt)}",
@@ -69,6 +78,7 @@ def main() -> None:
     args = sys.argv[1:]
     model = DEFAULT_MODEL
     save = False
+    outline = False
     thinking_budget: int | None = None
 
     i = 0
@@ -91,6 +101,9 @@ def main() -> None:
             else:
                 thinking_budget = DEFAULT_THINKING_BUDGET
                 i += 1
+        elif args[i] in ("--outline", "-o"):
+            outline = True
+            i += 1
         elif args[i] in ("--save", "-s"):
             save = True
             i += 1
@@ -110,12 +123,17 @@ def main() -> None:
         sys.exit(1)
 
     client = Anthropic(api_key=api_key)
-    pipeline = Pipeline([WriterStage(client, model, thinking_budget)], client)
+    stages = []
+    if outline:
+        stages.append(OutlinerStage(client, model))
+    stages.append(WriterStage(client, model, thinking_budget))
+    pipeline = Pipeline(stages, client)
 
-    status = "Generating your story"
-    if thinking_budget is not None:
-        status += f" (thinking budget: {thinking_budget} tokens)"
-    print(f"{status}...\n", file=sys.stderr)
+    if not outline:
+        status = "Generating your story"
+        if thinking_budget is not None:
+            status += f" (thinking budget: {thinking_budget} tokens)"
+        print(f"{status}...\n", file=sys.stderr)
     for chunk in pipeline.stream(prompt):
         print(chunk, end="", flush=True)
     print()  # final newline

@@ -10,11 +10,13 @@ class Pipeline:
     def __init__(self, stages: list[Stage], client: Anthropic) -> None:
         self.stages = stages
         self.client = client
+        self.last_ctx: Context | None = None
 
     def run(self, prompt: str) -> Context:
         ctx = Context(prompt=prompt)
         for stage in self.stages:
             ctx = stage.run(ctx)
+        self.last_ctx = ctx
         return ctx
 
     def stream(self, prompt: str) -> Iterator[str]:
@@ -31,3 +33,4 @@ class Pipeline:
             draft = ctx.data.get("draft", "")
             if draft:
                 yield draft
+        self.last_ctx = ctx

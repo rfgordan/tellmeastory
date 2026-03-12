@@ -25,13 +25,18 @@ class WriterStage(Stage):
 
     def stream(self, ctx: Context) -> Iterator[str]:
         full_text: list[str] = []
+        ctx.data["final_prompt"] = user_message(ctx)
+        ctx.data["model"] = self.model
         with self.client.messages.stream(
             model=self.model,
             max_tokens=MAX_TOKENS,
             system=SYSTEM,
-            messages=[{"role": "user", "content": user_message(ctx)}],
+            messages=[{"role": "user", "content": ctx.data["final_prompt"]}],
         ) as stream:
             for text in stream.text_stream:
                 full_text.append(text)
                 yield text
+            usage = stream.get_final_message().usage
+            ctx.data["input_tokens"] = usage.input_tokens
+            ctx.data["output_tokens"] = usage.output_tokens
         ctx.data["draft"] = "".join(full_text)

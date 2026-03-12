@@ -4,7 +4,7 @@ from anthropic import Anthropic
 
 from ..prompts.outliner import SYSTEM, user_message
 from ..stage import Context, Stage
-from .writer import MODELS, DEFAULT_MODEL
+from ..models import MODELS, DEFAULT_MODEL
 
 MAX_TOKENS = 2048
 
@@ -12,7 +12,7 @@ MAX_TOKENS = 2048
 class OutlinerStage(Stage):
     def __init__(self, client: Anthropic, model: str = DEFAULT_MODEL) -> None:
         self.client = client
-        self.model = MODELS[model]
+        self.model = MODELS[model].model_id
 
     def run(self, ctx: Context) -> Context:
         print("Generating outline...", file=sys.stderr)

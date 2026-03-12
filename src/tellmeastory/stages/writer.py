@@ -2,14 +2,10 @@ from collections.abc import Iterator
 
 from anthropic import Anthropic
 
+from ..models import MODELS, DEFAULT_MODEL
 from ..prompts.writer import SYSTEM, user_message
 from ..stage import Context, Stage
 
-MODELS = {
-    "sonnet4_6": "claude-sonnet-4-6",
-    "opus4_6": "claude-opus-4-6",
-}
-DEFAULT_MODEL = "sonnet4_6"
 DEFAULT_THINKING_BUDGET = 5000
 MAX_OUTPUT_TOKENS = 4096
 
@@ -17,7 +13,7 @@ MAX_OUTPUT_TOKENS = 4096
 class WriterStage(Stage):
     def __init__(self, client: Anthropic, model: str = DEFAULT_MODEL, thinking_budget: int | None = None) -> None:
         self.client = client
-        self.model = MODELS[model]
+        self.model = MODELS[model].model_id
         self.thinking_budget = thinking_budget
 
     def run(self, ctx: Context) -> Context:

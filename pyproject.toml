@@ -5,6 +5,7 @@ description = "A novel-writing agent that streams prose from a story concept"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.40.0",
+    "openai>=1.50.0",
     "python-dotenv>=1.0.0",
 ]
 

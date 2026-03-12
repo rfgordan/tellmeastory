@@ -4,22 +4,24 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from anthropic import Anthropic
 from dotenv import load_dotenv
 
+from .models import DEFAULT_MODEL, MODELS
 from .pipeline import Pipeline
 from .prompts.writer import SYSTEM
 from .stages.outliner import OutlinerStage
-from .stages.writer import DEFAULT_MODEL, DEFAULT_THINKING_BUDGET, MODELS, WriterStage
+from .stages.openai_outliner import OpenAIOutlinerStage
+from .stages.openai_writer import OpenAIWriterStage
+from .stages.writer import DEFAULT_THINKING_BUDGET, WriterStage
 
 load_dotenv()
 
 USAGE = (
-    "Usage: tellmeastory [--model sonnet4_6|opus4_6] [--outline] [--thinking [N]] [--save] \"<story concept>\"\n"
+    "Usage: tellmeastory [--model MODEL] [--outline] [--thinking [N]] [--save] \"<story concept>\"\n"
     "       echo \"<story concept>\" | tellmeastory [options]\n"
     f"Models: {', '.join(MODELS)} (default: {DEFAULT_MODEL})\n"
-    f"--outline   generate a structural outline before writing\n"
-    f"--thinking  enable extended thinking with optional token budget (default: {DEFAULT_THINKING_BUDGET})"
+    "--outline   generate a structural outline before writing\n"
+    f"--thinking  Anthropic only — extended thinking, optional token budget (default: {DEFAULT_THINKING_BUDGET})"
 )
 
 
@@ -45,7 +47,7 @@ def _save_story(output_root: Path, prompt: str, model_alias: str, ctx_data: dict
         (story_dir / "outline.txt").write_text(outline_text, encoding="utf-8")
 
     final_prompt = ctx_data.get("final_prompt", "")
-    # Indent multi-line values for YAML block scalar
+
     def block(s: str) -> str:
         return "|\n" + "\n".join("  " + line for line in s.splitlines())
 
@@ -70,11 +72,6 @@ def _save_story(output_root: Path, prompt: str, model_alias: str, ctx_data: dict
 
 
 def main() -> None:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        print("Error: ANTHROPIC_API_KEY is not set. Add it to your .env file or environment.", file=sys.stderr)
-        sys.exit(1)
-
     args = sys.argv[1:]
     model = DEFAULT_MODEL
     save = False
@@ -86,7 +83,7 @@ def main() -> None:
     while i < len(args):
         if args[i] in ("--model", "-m"):
             if i + 1 >= len(args):
-                print(f"Error: {args[i]} requires a value ({' or '.join(MODELS)}).", file=sys.stderr)
+                print(f"Error: {args[i]} requires a value.", file=sys.stderr)
                 sys.exit(1)
             model = args[i + 1]
             if model not in MODELS:
@@ -94,7 +91,6 @@ def main() -> None:
                 sys.exit(1)
             i += 2
         elif args[i] in ("--thinking", "-t"):
-            # Optional budget: --thinking or --thinking 8000
             if i + 1 < len(args) and args[i + 1].isdigit():
                 thinking_budget = int(args[i + 1])
                 i += 2
@@ -122,21 +118,41 @@ def main() -> None:
         print(USAGE, file=sys.stderr)
         sys.exit(1)
 
-    client = Anthropic(api_key=api_key)
-    stages = []
-    if outline:
-        stages.append(OutlinerStage(client, model))
-    stages.append(WriterStage(client, model, thinking_budget))
-    pipeline = Pipeline(stages, client)
+    provider = MODELS[model].provider
+
+    if provider == "anthropic":
+        from anthropic import Anthropic
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            print("Error: ANTHROPIC_API_KEY is not set.", file=sys.stderr)
+            sys.exit(1)
+        client = Anthropic(api_key=api_key)
+        writer = WriterStage(client, model, thinking_budget)
+        outliner = OutlinerStage(client, model) if outline else None
+    else:
+        from openai import OpenAI
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            print("Error: OPENAI_API_KEY is not set.", file=sys.stderr)
+            sys.exit(1)
+        if thinking_budget is not None:
+            print("Note: --thinking is only supported for Anthropic models, ignoring.", file=sys.stderr)
+        client = OpenAI(api_key=api_key)
+        writer = OpenAIWriterStage(client, model)
+        outliner = OpenAIOutlinerStage(client, model) if outline else None
+
+    stages = ([outliner] if outliner else []) + [writer]
+    pipeline = Pipeline(stages)
 
     if not outline:
         status = "Generating your story"
-        if thinking_budget is not None:
+        if thinking_budget is not None and provider == "anthropic":
             status += f" (thinking budget: {thinking_budget} tokens)"
         print(f"{status}...\n", file=sys.stderr)
+
     for chunk in pipeline.stream(prompt):
         print(chunk, end="", flush=True)
-    print()  # final newline
+    print()
 
     if save and pipeline.last_ctx is not None:
         output_root = Path.cwd() / "output"
